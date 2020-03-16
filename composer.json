@@ -1,0 +1,14 @@
+{
+    "name": "loutheo/empty",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Lou-Théo LAURENT",
+            "email": "loutheo.laurent@viacesi.fr"
+        }
+    ],
+    "require": {},
+    "require-dev": {
+        "phan/phan": "2.x"
+    }
+}
