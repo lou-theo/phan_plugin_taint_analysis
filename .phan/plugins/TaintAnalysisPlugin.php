@@ -49,6 +49,11 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability
 class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 {
     /**
+     * @var bool $searchMode True si on cherche les antécédents (à utiliser lors des prints) false sinon (pour les assignations)
+     */
+    private $searchMode = false;
+
+    /**
      * Visite d'une assignation afin de voir quelles sont les variables infectées
      *
      * @override
@@ -59,7 +64,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 
         // on regarde si l'expression est teinte
         $expression = $node->children['expr'];
-        $expressionTaintedness = $this->evaluateExprTaintedness($expression, false);
+        $expressionTaintedness = $this->evaluateExprTaintedness($expression);
 
         // on récupère la variable qui se fait assigner
         $var = $node->children['var'];
@@ -85,9 +90,10 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     public function visitEcho(Node $node)
     {
         \Phan\Debug::printNode($node);
+        $this->searchMode = true;
 
         $expression = $node->children['expr'];
-        $expressionTaintedness = $this->evaluateExprTaintedness($expression, true);
+        $expressionTaintedness = $this->evaluateExprTaintedness($expression);
 
         if (count($expressionTaintedness) == 0) {
             var_dump('OK');
@@ -110,10 +116,9 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      * Evalue et retourne les sources de contamination potentielles pour une expression
      *
      * @param $expression L'expression à annalyser
-     * @param bool $searchMode True si on cherche les antécédents (à utiliser lors des prints) false sinon (pour les assignations)
      * @return array<TaintednessRoot> la liste des sources possibles de contagion de l'expression
      */
-    private function evaluateExprTaintedness($expression, bool $searchMode): array
+    private function evaluateExprTaintedness($expression): array
     {
         if (!is_object($expression)) {
             // si l'expression est quelque chose de constant (une chaine de caractère ou un int)
@@ -124,16 +129,16 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
             case ast\AST_VAR:
                 // l'expression est une variable, on évalue si elle est teintée
                 $varName = $expression->children['name'];
-                return $this->evaluateVarTaintedness($varName, $searchMode);
+                return $this->evaluateVarTaintedness($varName);
             case ast\AST_DIM:
                 // l'expression est une array à laquelle on accède
                 $subExpression = $expression->children['expr'];
-                return $this->evaluateExprTaintedness($subExpression, $searchMode);
+                return $this->evaluateExprTaintedness($subExpression);
             case ast\AST_BINARY_OP:
                 // on retourne le merge des 2 sous expressions
                 $leftSubExpression = $expression->children['left'];
                 $rightSubExpression = $expression->children['right'];
-                return array_merge($this->evaluateExprTaintedness($leftSubExpression, $searchMode), $this->evaluateExprTaintedness($rightSubExpression, $searchMode));
+                return array_merge($this->evaluateExprTaintedness($leftSubExpression), $this->evaluateExprTaintedness($rightSubExpression));
 
             default:
                 // cas actuellement non prévu
@@ -145,10 +150,9 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      * Evalue et retourne les sources de contamination potentielles pour une variable
      *
      * @param string $varName le nom de la variable à analyser
-     * @param bool $searchMode True si on cherche les antécédents (à utiliser lors des prints) false sinon (pour les assignations)
      * @return array<TaintednessRoot> la liste des sources possibles de contagion de la variable
      */
-    private function evaluateVarTaintedness(string $varName, bool $searchMode): array
+    private function evaluateVarTaintedness(string $varName): array
     {
         // on regarde si la variable est une des sources absolues de contagion
         if ($varName == "_GET" || $varName == "_POST" || $varName == "_GLOBAL" || $varName == "_SERVER") {
@@ -165,7 +169,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
         if (count($varTaintedness) == 0) {
             // si la variable n'est pas contaminée, on a pas de source de contamination
             return [];
-        } elseif ($searchMode) {
+        } elseif ($this->searchMode) {
             // si on cherche à avoir les origines de contamination de la variable
             return $this->getVarTaintedness($variable);
         } else {
