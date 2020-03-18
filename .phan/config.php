@@ -310,6 +310,7 @@ return [
     //
     // Alternately, you can pass in the full path to a PHP file with the plugin's implementation (e.g. `'vendor/phan/phan/.phan/plugins/AlwaysReturnPlugin.php'`)
     'plugins' => [
+        '.phan/plugins/NaiveTaintAnalysisPlugin.php',
         '.phan/plugins/TaintAnalysisPlugin.php',
     ],
 
