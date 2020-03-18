@@ -1,2 +1,1 @@
-[96msrc/test.php[0m:[37m7[0m [93mPhanTypeConversionFromArray[0m array to [37mstring[0m conversion
-[96msrc/test.php[0m:[37m7[0m [91mTaintAnalysisPlugin[0m Une expression potentiellement infectée est affichée. Les sources potentielles sont : [95m$test à src/test.php:4 ; $_POST à src/test.php:5[0m
+[96msrc/test.php[0m:[37m17[0m [91mTaintAnalysisPlugin[0m Une expression potentiellement infectée est affichée. Les sources potentielles sont : [95m$test à src/test.php:4 ; $_POST à src/test.php:5 ; $_GET à src/test.php:5[0m

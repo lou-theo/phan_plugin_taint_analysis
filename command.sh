@@ -1,2 +1,3 @@
+clear
 php vendor/phan/phan/phan --output results.txt --no-progress-bar --color
-cat result.txt
+cat results.txt

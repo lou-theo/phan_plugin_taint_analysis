@@ -68,9 +68,10 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 
         if (count($expressionTaintedness) == 0) {
             // si l'expression est saine on efface les sources possibles de contagion
-            // $this->resetVarTaintedness($varObject);
+//             $this->resetVarTaintedness($varObject);
         } else {
             // si l'expression est teinte, on ajoute les sources de teintes potentielles
+//            $this->resetVarTaintedness($varObject);
             $this->addVarTaintedness($varObject, $expressionTaintedness);
         }
     }
@@ -114,12 +115,30 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      */
     private function evaluateExprTaintedness($expression, bool $searchMode): array
     {
-        if (!is_object($expression) || (is_object($expression) && $expression->kind !== ast\AST_VAR)) {
+        if (!is_object($expression)) {
+            // si l'expression est quelque chose de constant (une chaine de caractère ou un int)
             return [];
         }
 
-        $varName = $expression->children['name'];
-        return $this->evaluateVarTaintedness($varName, $searchMode);
+        switch ($expression->kind ) {
+            case ast\AST_VAR:
+                // l'expression est une variable, on évalue si elle est teintée
+                $varName = $expression->children['name'];
+                return $this->evaluateVarTaintedness($varName, $searchMode);
+            case ast\AST_DIM:
+                // l'expression est une array à laquelle on accède
+                $subExpression = $expression->children['expr'];
+                return $this->evaluateExprTaintedness($subExpression, $searchMode);
+            case ast\AST_BINARY_OP:
+                // on retourne le merge des 2 sous expressions
+                $leftSubExpression = $expression->children['left'];
+                $rightSubExpression = $expression->children['right'];
+                return array_merge($this->evaluateExprTaintedness($leftSubExpression, $searchMode), $this->evaluateExprTaintedness($rightSubExpression, $searchMode));
+
+            default:
+                // cas actuellement non prévu
+                return [];
+        }
     }
 
     /**
@@ -138,8 +157,8 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 
         // on récupère la variable dont on prend la valeur afin de voir si elle est contaminée
         $variable = $this->context->getScope()->getVariableByNameOrNull($varName);
-        if (!$variable || $variable instanceof PassByReferenceVariable) {
-            return []; // TODO
+        if (!$variable) {
+            return [];
         }
         $varTaintedness = $this->getVarTaintedness($variable);
 
