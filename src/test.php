@@ -2,6 +2,8 @@
 
 $test = $_GET['z'];
 $yo = $test;
+$you = 'zd';
+$yo = $you . 'zeff';
 $yo = $_POST['g'] . $_GET['test'];
 
 //$yo = 'a';

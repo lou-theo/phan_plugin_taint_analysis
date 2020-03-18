@@ -1,1 +1,2 @@
-[96msrc/test.php[0m:[37m17[0m [91mTaintAnalysisPlugin[0m Une expression potentiellement infectée est affichée. Les sources potentielles sont : [95m$test à src/test.php:4 ; $_POST à src/test.php:5 ; $_GET à src/test.php:5[0m
+[96msrc/test.php[0m:[37m19[0m [93mTaintAnalysisPlugin[0m Expressions saines : [95m$you à src/test.php:6 ; valeur constante à src/test.php:6[0m
+[96msrc/test.php[0m:[37m19[0m [91mTaintAnalysisPlugin[0m Une expression potentiellement infectée est affichée. Les sources potentielles sont : [95m$test à src/test.php:4 ; $_POST à src/test.php:7 ; $_GET à src/test.php:7[0m

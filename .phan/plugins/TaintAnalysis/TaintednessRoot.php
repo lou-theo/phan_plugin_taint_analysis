@@ -33,6 +33,13 @@ class TaintednessRoot
 
     public function __toString()
     {
-        return '$' . $this->varName . ' à ' . $this->fileName . ':' . $this->lineNumber;
+        return $this->getVarName() . ' à ' . $this->fileName . ':' . $this->lineNumber;
+    }
+
+    /**
+     * @return bool|string
+     */
+    public function getVarName(): string {
+        return $this->varName == 'valeur constante' ? $this->varName : '$' . $this->varName;
     }
 }
