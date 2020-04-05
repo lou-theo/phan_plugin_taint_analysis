@@ -69,7 +69,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
         // on récupère la variable qui se fait assigner
         $var = $node->children['var'];
         $varName = $var->children['name'];
-        $varObject = $this->context->getScope()->getVariableByNameOrNull($varName);
+        $varObject = $this->getVariableFromDeclarationScope($varName);
 
         if (count($expressionTaintedness) == 0) {
             // si l'expression est saine on efface les sources possibles de contagion
@@ -193,7 +193,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
         }
 
         // on récupère la variable dont on prend la valeur afin de voir si elle est contaminée
-        $variable = $this->context->getScope()->getVariableByNameOrNull($varName);
+        $variable = $this->getVariableFromDeclarationScope($varName);
         if (!$variable) {
             return [];
         }
@@ -210,6 +210,26 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
             // la variable a un état, on l'ajoute en tant que source
             return [new TaintednessRoot($varName, $this->context->getLineNumberStart(), $this->context->getFile())];
         }
+    }
+
+    /**
+     * Récupère une variable dans le scope depuis laquelle elle a été déclarée
+     *
+     * @param string $varName Le nom de la variable à récupérer
+     * @return Variable|null La variable ou null si elle n'existe pas
+     */
+    private function getVariableFromDeclarationScope(string $varName): ?Variable {
+        $scopeExplored = $this->context->getScope();
+        $variable = $scopeExplored->getVariableByNameOrNull($varName);
+        while ($scopeExplored->hasParentScope()) {
+            $scopeExplored = $scopeExplored->getParentScope();
+            $variableInParentScope = $scopeExplored->getVariableByNameOrNull($varName);
+            if ($variableInParentScope != null) {
+                $variable = $variableInParentScope;
+            }
+        }
+
+        return $variable;
     }
 
     /**
