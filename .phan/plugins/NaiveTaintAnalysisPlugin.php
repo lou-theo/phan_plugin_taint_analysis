@@ -59,7 +59,7 @@ class NaiveTaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      * @param Node $node
      */
     public function visitAssign(Node $node): void {
-        \Phan\Debug::printNode($node);
+//        \Phan\Debug::printNode($node);
 
         // on regarde si l'expression est teinte
         $expression = $node->children['expr'];
@@ -95,7 +95,7 @@ class NaiveTaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      */
     public function visitEcho(Node $node)
     {
-        \Phan\Debug::printNode($node);
+//        \Phan\Debug::printNode($node);
         $this->searchMode = true;
 
         $expression = $node->children['expr'];
@@ -104,6 +104,14 @@ class NaiveTaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 
         if (count($expressionTaintedness) == 0) {
             var_dump('OK');
+            $this->emitPluginIssue(
+                $this->code_base,
+                $this->context,
+                'NaiveTaintAnalysisPlugin',
+                "Expression saine, origines saines : {STRING_LITERAL}",
+                [implode(' ; ', $expressionCleanness)],
+                Issue::SEVERITY_LOW
+            );
         } else {
             var_dump('KO');
 //            var_dump($expressionTaintedness);
@@ -112,7 +120,7 @@ class NaiveTaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
                 $this->code_base,
                 $this->context,
                 'NaiveTaintAnalysisPlugin',
-                "Une expression potentiellement infectée est affichée. Les sources potentielles sont : {STRING_LITERAL}",
+                "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
                 [implode(' ; ', $expressionTaintedness)],
                 Issue::SEVERITY_NORMAL
             );
@@ -120,7 +128,7 @@ class NaiveTaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
                 $this->code_base,
                 $this->context,
                 'NaiveTaintAnalysisPlugin',
-                "Expressions saines : {STRING_LITERAL}",
+                "Une expression potentiellement infectée est affichée. Les sources saines sont : {STRING_LITERAL}",
                 [implode(' ; ', $expressionCleanness)],
                 Issue::SEVERITY_LOW
             );

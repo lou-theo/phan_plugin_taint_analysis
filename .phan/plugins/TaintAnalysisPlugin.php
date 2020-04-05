@@ -104,6 +104,14 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 
         if (count($expressionTaintedness) == 0) {
             var_dump('OK');
+            $this->emitPluginIssue(
+                $this->code_base,
+                $this->context,
+                'TaintAnalysisPlugin',
+                "Expression saine, origines saines : {STRING_LITERAL}",
+                [implode(' ; ', $expressionCleanness)],
+                Issue::SEVERITY_LOW
+            );
         } else {
             var_dump('KO');
 //            var_dump($expressionTaintedness);
@@ -112,7 +120,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
                 $this->code_base,
                 $this->context,
                 'TaintAnalysisPlugin',
-                "Une expression potentiellement infectée est affichée. Les sources potentielles sont : {STRING_LITERAL}",
+                "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
                 [implode(' ; ', $expressionTaintedness)],
                 Issue::SEVERITY_NORMAL
             );
@@ -120,7 +128,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
                 $this->code_base,
                 $this->context,
                 'TaintAnalysisPlugin',
-                "Expressions saines : {STRING_LITERAL}",
+                "Une expression potentiellement infectée est affichée. Les sources saines sont : {STRING_LITERAL}",
                 [implode(' ; ', $expressionCleanness)],
                 Issue::SEVERITY_LOW
             );
