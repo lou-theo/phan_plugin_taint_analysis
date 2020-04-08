@@ -58,6 +58,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     public function finalizeProcess(CodeBase $code_base): void
     {
         // on parcourt chacun des outputs qui a été récolté pendant l'analyse
+        /** @var OutputToEvaluate $output */
         foreach (self::$outputsToEvaluate as $output) {
             // on récupère les différentes sources d'informations dirrectement contenues dans l'expression
             $sources = $this->extractVariableSourcesFromExpression($output->getExpression(), $output->getContext());
@@ -69,14 +70,16 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
             }
             $evilSources = array_unique($evilSources);
 
-            $this->emitPluginIssue(
-                $output->getCodeBase(),
-                $output->getContext(),
-                'TaintAnalysisPlugin',
-                "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
-                [implode(' ; ', $evilSources)],
-                Issue::SEVERITY_NORMAL
-            );
+            if (count($evilSources) != 0) {
+                $this->emitPluginIssue(
+                    $output->getCodeBase(),
+                    $output->getContext(),
+                    'TaintAnalysisPlugin',
+                    "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
+                    [implode(' ; ', $evilSources)],
+                    Issue::SEVERITY_NORMAL
+                );
+            }
         }
     }
 
@@ -131,7 +134,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      */
     public function visitAssign(Node $node): void
     {
-        \Phan\Debug::printNode($node);
+//        \Phan\Debug::printNode($node);
 
         $expression = $node->children['expr'];
         $sources = $this->extractVariableSourcesFromExpression($expression, $this->context);
@@ -150,7 +153,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
      */
     public function visitEcho(Node $node)
     {
-        \Phan\Debug::printNode($node);
+//        \Phan\Debug::printNode($node);
 
         $expression = $node->children['expr'];
         TaintAnalysisPlugin::$outputsToEvaluate[] = new OutputToEvaluate($expression, $this->code_base, $this->context);
