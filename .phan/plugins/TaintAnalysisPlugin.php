@@ -148,6 +148,17 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     }
 
     /**
+     * @param Node $node
+     */
+    public function visitGlobal(Node $node)
+    {
+        $varNode = $node->children['var'];
+        $varName = $this->extractNameFromVarNode($varNode);
+        $varObject = $this->getVariableFromDeclarationScope($this->context->getScope(), $varName);
+        $varObject->global = true;
+    }
+
+        /**
      * @override
      * @param Node $node
      */

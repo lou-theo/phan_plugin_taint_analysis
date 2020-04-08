@@ -21,6 +21,19 @@ Trait TaintAnalysisTrait
     }
 
     /**
+     * @param Variable $varObject La variable dont on veut savoir si elle est globale (pour les variables dans les fonctions)
+     * @return boolean Si la variable est globale ou non
+     */
+    private function isGlobal(Variable $varObject): bool
+    {
+        if (property_exists($varObject, 'global')) {
+            return $varObject->global;
+        } else {
+            return false;
+        }
+    }
+
+    /**
      * Récupère la variable dans le scope depuis laquelle elle a été déclarée
      *
      * @param Scope $scopeExplored Le scope depuis lequel on commence les recherches
@@ -30,7 +43,17 @@ Trait TaintAnalysisTrait
     private function getVariableFromDeclarationScope(Scope $scopeExplored, $varName): ?Variable
     {
         $variable = $scopeExplored->getVariableByNameOrNull($varName);
-        while ($scopeExplored->hasParentScope()) {
+        while (
+            $scopeExplored->hasParentScope() &&
+            (
+                (
+                    $scopeExplored->isInFunctionLikeScope() &&
+                    $scopeExplored->getParentScope()->isInFunctionLikeScope()
+                ) ||
+                !$scopeExplored->isInFunctionLikeScope() ||
+                $this->isGlobal($variable)
+            )
+        ) {
             $scopeExplored = $scopeExplored->getParentScope();
             $variableInParentScope = $scopeExplored->getVariableByNameOrNull($varName);
             if ($variableInParentScope != null) {
