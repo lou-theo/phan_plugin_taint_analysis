@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use ast\Node;
+use Phan\CodeBase;
 use Phan\Issue;
 use Phan\Language\Element\PassByReferenceVariable;
 use Phan\Language\Element\Variable;
@@ -11,7 +12,9 @@ use Phan\PluginV3\PluginAwarePostAnalysisVisitor;
 use Phan\PluginV3\PostAnalyzeNodeCapability;
 use Phan\Debug;
 
-require_once __DIR__ . "/TaintAnalysis/TaintednessRoot.php";
+require_once __DIR__ . "/TaintAnalysis/VariableSource.php";
+require_once __DIR__ . "/TaintAnalysis/OutputToEvaluate.php";
+require_once __DIR__ . "/TaintAnalysis/TaintAnalysisTrait.php";
 
 /**
  *
@@ -27,14 +30,87 @@ require_once __DIR__ . "/TaintAnalysis/TaintednessRoot.php";
  * Note: When adding new plugins,
  * add them to the corresponding section of README.md
  */
-class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability
+class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability, PluginV3\FinalizeProcessCapability
 {
+    use TaintAnalysisTrait;
+
+    /**
+     * @var array<OutputToEvaluate>
+     */
+    public static $outputsToEvaluate = [];
+
+    /**
+     * @var array<string> Le nom des variables qui sont des sources de contamination absolues
+     */
+    public static $taintednessRoots = ["_GET", "_POST", "_GLOBAL", "_SERVER"];
+
     /**
      * @return string - name of PluginAwarePostAnalysisVisitor subclass
      */
     public static function getPostAnalyzeNodeVisitorClassName(): string
     {
         return TaintAnalysisVisitor::class;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function finalizeProcess(CodeBase $code_base): void
+    {
+        // on parcourt chacun des outputs qui a été récolté pendant l'analyse
+        foreach (self::$outputsToEvaluate as $output) {
+            // on récupère les différentes sources d'informations dirrectement contenues dans l'expression
+            $sources = $this->extractVariableSourcesFromExpression($output->getExpression(), $output->getContext());
+            $sources = array_unique($sources);
+            $evilSources = [];
+            foreach ($sources as $source) {
+                // on parcourt chacune des sources récupérées pour voir si elles contiennent des sources potentielles de contamination
+                $evilSources = array_merge($evilSources, $this->evaluateEvilSources($source));
+            }
+            $evilSources = array_unique($evilSources);
+
+            $this->emitPluginIssue(
+                $output->getCodeBase(),
+                $output->getContext(),
+                'TaintAnalysisPlugin',
+                "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
+                [implode(' ; ', $evilSources)],
+                Issue::SEVERITY_NORMAL
+            );
+        }
+    }
+
+    /**
+     * Cherche les sources de contamination potentielles contenu dans une source
+     *
+     * @param VariableSource $source La source à évaluer
+     * @return array<VariableSource> La liste des sources contaminées trouvées
+     */
+    private function evaluateEvilSources(VariableSource $source): array
+    {
+        $evilSources = [];
+        $firstSourceName = $source->getVarName();
+
+        if (in_array($source->getVarName(), self::$taintednessRoots)) {
+            // Si le nom de la variable lié à la source est une des sources de contamination absolue
+            $evilSources[] = $source;
+        }
+        if ($source->getVarObject() == null) {
+            return $evilSources;
+        }
+
+        // on fait une recherche récursive parmi les sources de la source
+        $parentSources = $this->getVariableSources($source->getVarObject());
+        if (count($parentSources) != 0) {
+            foreach ($parentSources as $parentSource) {
+                // on fait attention à éviter les dépendances circulaires
+                if ($parentSource->getVarName() != $firstSourceName) {
+                    $evilSources = array_merge($evilSources, $this->evaluateEvilSources($parentSource));
+                }
+            }
+        }
+
+        return $evilSources;
     }
 }
 
@@ -47,256 +123,57 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability
  */
 class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 {
-    /**
-     * @var bool $searchMode True si on cherche les antécédents (à utiliser lors des prints) false sinon (pour les assignations)
-     */
-    private $searchMode = false;
+    use TaintAnalysisTrait;
 
     /**
-     * Visite d'une assignation afin de voir quelles sont les variables infectées
-     *
      * @override
      * @param Node $node
      */
-    public function visitAssign(Node $node): void {
+    public function visitAssign(Node $node): void
+    {
         \Phan\Debug::printNode($node);
 
-        // on regarde si l'expression est teinte
         $expression = $node->children['expr'];
-        $expressionTaintedness = $this->evaluateExprTaintedness($expression);
-        $expressionCleanness = $this->evaluateExprTaintedness($expression, false);
+        $sources = $this->extractVariableSourcesFromExpression($expression, $this->context);
 
         // on récupère la variable qui se fait assigner
-        $var = $node->children['var'];
-        $varName = $var->children['name'];
-        $varObject = $this->getVariableFromDeclarationScope($varName);
+        $varNode = $node->children['var'];
+        $varName = $this->extractNameFromVarNode($varNode);
+        $varObject = $this->getVariableFromDeclarationScope($this->context->getScope(), $varName);
 
-        if (count($expressionTaintedness) == 0) {
-            // si l'expression est saine on efface les sources possibles de contagion
-//             $this->resetVarTaintedness($varObject);
-        } else {
-            // si l'expression est teinte, on ajoute les sources de teintes potentielles
-//            $this->resetVarTaintedness($varObject);
-            $this->addVarTaintedness($varObject, $expressionTaintedness);
-        }
-        if (count($expressionCleanness) == 0) {
-//             $this->resetVarTaintedness($varObject);
-        } else {
-//            $this->resetVarTaintedness($varObject);
-            $this->addVarTaintedness($varObject, $expressionCleanness, false);
-        }
+        $this->addVariableSources($varObject, $sources);
     }
 
     /**
-     * Visite d'un echo afin de vérifier si les expressions affichées ne contiennent pas de variables infectées
-     *
      * @override
      * @param Node $node
      */
     public function visitEcho(Node $node)
     {
         \Phan\Debug::printNode($node);
-        $this->searchMode = true;
 
         $expression = $node->children['expr'];
-        $expressionTaintedness = $this->evaluateExprTaintedness($expression);
-        $expressionCleanness = $this->evaluateExprTaintedness($expression, false);
-
-        if (count($expressionTaintedness) == 0) {
-            var_dump('OK');
-            $this->emitPluginIssue(
-                $this->code_base,
-                $this->context,
-                'TaintAnalysisPlugin',
-                "Expression saine, origines saines : {STRING_LITERAL}",
-                [implode(' ; ', $expressionCleanness)],
-                Issue::SEVERITY_LOW
-            );
-        } else {
-            var_dump('KO');
-//            var_dump($expressionTaintedness);
-
-            $this->emitPluginIssue(
-                $this->code_base,
-                $this->context,
-                'TaintAnalysisPlugin',
-                "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
-                [implode(' ; ', $expressionTaintedness)],
-                Issue::SEVERITY_NORMAL
-            );
-            $this->emitPluginIssue(
-                $this->code_base,
-                $this->context,
-                'TaintAnalysisPlugin',
-                "Une expression potentiellement infectée est affichée. Les sources saines sont : {STRING_LITERAL}",
-                [implode(' ; ', $expressionCleanness)],
-                Issue::SEVERITY_LOW
-            );
-        }
+        TaintAnalysisPlugin::$outputsToEvaluate[] = new OutputToEvaluate($expression, $this->code_base, $this->context);
     }
 
     /**
-     * Evalue et retourne les sources de contamination potentielles pour une expression
-     *
-     * @param $expression L'expression à annalyser
-     * @param bool $isTainted Si la liste de variable à ajouter est contaminée
-     * @return array<TaintednessRoot> la liste des sources possibles de contagion de l'expression
+     * @param Variable $varObject La variable dont on veut ajouter des sources
+     * @param array<VariableSource> $newVariableSources La liste des sources que l'on veut ajouter à la variable
      */
-    private function evaluateExprTaintedness($expression, $isTainted = true): array
+    private function addVariableSources(Variable $varObject, array $newVariableSources): void
     {
-        if (!is_object($expression)) {
-            // si l'expression est quelque chose de constant (une chaine de caractère ou un int)
-            if ($isTainted) {
-                return [];
+        $variableSources = $this->getVariableSources($varObject);
+        $variableSources = array_unique(array_merge($variableSources, $newVariableSources));
+        usort($variableSources, function(VariableSource $a, VariableSource $b)
+        {
+            $fileComparison = strcmp($a->getFileName(), $b->getFileName());
+            if ($fileComparison != 0) {
+                return $fileComparison;
             } else {
-                return [new TaintednessRoot('valeur constante', $this->context->getLineNumberStart(), $this->context->getFile())];
+                return $a->getLineNumber() - $b->getLineNumber();
             }
-        }
-
-        switch ($expression->kind ) {
-            case ast\AST_VAR:
-                // l'expression est une variable, on évalue si elle est teintée
-                $varName = $expression->children['name'];
-                return $this->evaluateVarTaintedness($varName, $isTainted);
-            case ast\AST_DIM:
-                // l'expression est une array à laquelle on accède
-                $subExpression = $expression->children['expr'];
-                return $this->evaluateExprTaintedness($subExpression, $isTainted);
-            case ast\AST_BINARY_OP:
-                // on retourne le merge des 2 sous expressions
-                $leftSubExpression = $expression->children['left'];
-                $rightSubExpression = $expression->children['right'];
-                return array_merge($this->evaluateExprTaintedness($leftSubExpression, $isTainted), $this->evaluateExprTaintedness($rightSubExpression, $isTainted));
-
-            default:
-                // cas actuellement non prévu
-                return [];
-        }
-    }
-
-    /**
-     * Evalue et retourne les sources de contamination potentielles pour une variable
-     *
-     * @param string $varName le nom de la variable à analyser
-     * @param bool $isTainted Si la liste de variable à ajouter est contaminée
-     * @return array<TaintednessRoot> la liste des sources possibles de contagion de la variable
-     */
-    private function evaluateVarTaintedness(string $varName, $isTainted = true): array
-    {
-        // on regarde si la variable est une des sources absolues de contagion
-        if ($varName == "_GET" || $varName == "_POST" || $varName == "_GLOBAL" || $varName == "_SERVER") {
-            if ($isTainted) {
-                return [new TaintednessRoot($varName, $this->context->getLineNumberStart(), $this->context->getFile())];
-            } else {
-                return [];
-            }
-        }
-
-        // on récupère la variable dont on prend la valeur afin de voir si elle est contaminée
-        $variable = $this->getVariableFromDeclarationScope($varName);
-        if (!$variable) {
-            return [];
-        }
-        // on récupère la liste d'état de la variable, taintedness ou cleanness selon $isTainted
-        $varStatus = $this->getVarTaintedness($variable, $isTainted);
-
-        if (count($varStatus) == 0) {
-            // si la variable n'a pas d'état, pas de source
-            return [];
-        } elseif ($this->searchMode) {
-            // si on cherche à avoir les origines de contamination de la variable
-            return $this->getVarTaintedness($variable, $isTainted);
-        } else {
-            // la variable a un état, on l'ajoute en tant que source
-            return [new TaintednessRoot($varName, $this->context->getLineNumberStart(), $this->context->getFile())];
-        }
-    }
-
-    /**
-     * Récupère une variable dans le scope depuis laquelle elle a été déclarée
-     *
-     * @param string $varName Le nom de la variable à récupérer
-     * @return Variable|null La variable ou null si elle n'existe pas
-     */
-    private function getVariableFromDeclarationScope(string $varName): ?Variable {
-        $scopeExplored = $this->context->getScope();
-        $variable = $scopeExplored->getVariableByNameOrNull($varName);
-        while ($scopeExplored->hasParentScope()) {
-            $scopeExplored = $scopeExplored->getParentScope();
-            $variableInParentScope = $scopeExplored->getVariableByNameOrNull($varName);
-            if ($variableInParentScope != null) {
-                $variable = $variableInParentScope;
-            }
-        }
-
-        return $variable;
-    }
-
-    /**
-     * Permet d'obtenir la liste des sources de contagion qui ont été attribuées à une variable
-     *
-     * @param Variable $varObject La variable dont on veut obtenir des infos
-     * @return array<TaintednessRoot> La liste des sources possibles de contamination
-     * @param bool $isTainted Si la liste de variable à ajouter est contaminée
-     */
-    private function getVarTaintedness(Variable $varObject, $isTainted = true): array
-    {
-        if (property_exists($varObject, 'taintednessRoots') && $isTainted) {
-            return $varObject->taintednessRoots;
-        } elseif (property_exists($varObject, 'cleannessRoots') && !$isTainted) {
-            return $varObject->cleannessRoots;
-        } else {
-            return [];
-        }
-    }
-
-    /**
-     * Ajoute des sources de contamination possibles à une variable
-     *
-     * @param Variable $varObject La variable dont on veut ajouter des sources de contamination
-     * @param array<TaintednessRoot> $expressionTaintedness Liste des sources de contamination à ajouter
-     * @param bool $isTainted Si la liste de variable à ajouter est contaminée
-     */
-    private function addVarTaintedness(Variable $varObject, array $expressionTaintedness, $isTainted = true): void
-    {
-        if ($isTainted) {
-            $taintednessRoots = $this->getVarTaintedness($varObject);
-            $taintednessRoots = array_unique(array_merge($taintednessRoots, $expressionTaintedness));
-            usort($taintednessRoots, function(TaintednessRoot $a, TaintednessRoot $b)
-            {
-                $fileComparison = strcmp($a->fileName, $b->fileName);
-                if ($fileComparison != 0) {
-                    return $fileComparison;
-                } else {
-                    return $a->lineNumber - $b->lineNumber;
-                }
-            });
-            $varObject->taintednessRoots = $taintednessRoots;
-        } else {
-            $cleannessRoots = $this->getVarTaintedness($varObject, false);
-            $cleannessRoots = array_unique(array_merge($cleannessRoots, $expressionTaintedness));
-            usort($cleannessRoots, function(TaintednessRoot $a, TaintednessRoot $b)
-            {
-                $fileComparison = strcmp($a->fileName, $b->fileName);
-                if ($fileComparison != 0) {
-                    return $fileComparison;
-                } else {
-                    return $a->lineNumber - $b->lineNumber;
-                }
-            });
-            $varObject->cleannessRoots = $cleannessRoots;
-        }
-    }
-
-    /**
-     * Efface la liste de toutes les sources de contamination d'une variable
-     *
-     * @param Variable $varObject le nom de la variable a réinitialiser
-     */
-    private function resetVarTaintedness(Variable $varObject): void
-    {
-        $varObject->taintednessRoots = [];
-        $varObject->cleannessRoots = [];
+        });
+        $varObject->variableSources = $variableSources;
     }
 }
 
