@@ -13,6 +13,7 @@ use Phan\PluginV3\PostAnalyzeNodeCapability;
 use Phan\Debug;
 
 require_once __DIR__ . "/TaintAnalysis/VariableSource.php";
+require_once __DIR__ . "/TaintAnalysis/FunctionDefinition.php";
 require_once __DIR__ . "/TaintAnalysis/OutputToEvaluate.php";
 require_once __DIR__ . "/TaintAnalysis/TaintAnalysisTrait.php";
 
@@ -35,7 +36,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     use TaintAnalysisTrait;
 
     /**
-     * @var array<OutputToEvaluate>
+     * @var array<OutputToEvaluate> La liste des outputs à évaluer en global
      */
     public static $outputsToEvaluate = [];
 
@@ -43,6 +44,11 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
      * @var array<string> Le nom des variables qui sont des sources de contamination absolues
      */
     public static $taintednessRoots = ["_GET", "_POST", "_GLOBAL", "_SERVER"];
+
+    /**
+     * @var array<FunctionDefinition> La liste des fonctions
+     */
+    public static $functionDefinitions = [];
 
     /**
      * @return string - name of PluginAwarePostAnalysisVisitor subclass
@@ -57,6 +63,14 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
      */
     public function finalizeProcess(CodeBase $code_base): void
     {
+        $this->handleGlobalOutputs();
+    }
+
+    /**
+     * Gère la recherche des contaminations dans les outputs en général
+     */
+    private function handleGlobalOutputs()
+    {
         // on parcourt chacun des outputs qui a été récolté pendant l'analyse
         /** @var OutputToEvaluate $output */
         foreach (self::$outputsToEvaluate as $output) {
@@ -68,7 +82,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
                 // on parcourt chacune des sources récupérées pour voir si elles contiennent des sources potentielles de contamination
                 $evilSources = array_merge($evilSources, $this->evaluateEvilSources($source));
             }
-            $evilSources = array_unique($evilSources);
+            $evilSources = $this->sortVariableSources($evilSources);
 
             if (count($evilSources) != 0) {
                 $this->emitPluginIssue(
@@ -148,6 +162,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     }
 
     /**
+     * @override
      * @param Node $node
      */
     public function visitGlobal(Node $node)
@@ -158,7 +173,7 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
         $varObject->global = true;
     }
 
-        /**
+    /**
      * @override
      * @param Node $node
      */
@@ -171,22 +186,29 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     }
 
     /**
+     * @override
+     * @param Node $node
+     */
+    public function visitReturn(Node $node)
+    {
+        $expression = $node->children['expr'];
+        $sources = $this->extractVariableSourcesFromExpression($expression, $this->context);
+        $sources = $this->sortVariableSources($sources);
+
+        $func = $this->context->getFunctionLikeInScope($this->code_base);
+        $functionDefinition = $this->getFunctionDefinitionFromFunc($func);
+        $functionDefinition->addReturnSources($sources);
+    }
+
+    /**
      * @param Variable $varObject La variable dont on veut ajouter des sources
      * @param array<VariableSource> $newVariableSources La liste des sources que l'on veut ajouter à la variable
      */
     private function addVariableSources(Variable $varObject, array $newVariableSources): void
     {
         $variableSources = $this->getVariableSources($varObject);
-        $variableSources = array_unique(array_merge($variableSources, $newVariableSources));
-        usort($variableSources, function(VariableSource $a, VariableSource $b)
-        {
-            $fileComparison = strcmp($a->getFileName(), $b->getFileName());
-            if ($fileComparison != 0) {
-                return $fileComparison;
-            } else {
-                return $a->getLineNumber() - $b->getLineNumber();
-            }
-        });
+        $variableSources = array_merge($variableSources, $newVariableSources);
+        $variableSources = $this->sortVariableSources($variableSources);
         $varObject->variableSources = $variableSources;
     }
 }

@@ -2,6 +2,7 @@
 
 use ast\Node;
 use Phan\Language\Context;
+use Phan\Language\Element\Func;
 use Phan\Language\Element\Variable;
 use Phan\Language\Scope;
 
@@ -31,6 +32,42 @@ Trait TaintAnalysisTrait
         } else {
             return false;
         }
+    }
+
+    /**
+     * @param Func $func L'objet Func dont on veut la FonctionDefinition
+     * @return FunctionDefinition
+     */
+    private function getFunctionDefinitionFromFunc(Func $func): FunctionDefinition
+    {
+        $functionName = $func->getName();
+        $functionDefinition = null;
+        if (isset(TaintAnalysisPlugin::$functionDefinitions[$functionName])) {
+            $functionDefinition = TaintAnalysisPlugin::$functionDefinitions[$functionName];
+        } else {
+            $functionDefinition = new FunctionDefinition($func);
+            TaintAnalysisPlugin::$functionDefinitions[$functionName] = $functionDefinition;
+        }
+        return $functionDefinition;
+    }
+
+    /**
+     * @param array<VariableSource> $variableSources La liste des sources à trier
+     * @return array<VariableSource> La liste des sources triées et unique
+     */
+    public function sortVariableSources(array $variableSources): array
+    {
+        $variableSources = array_unique($variableSources);
+        usort($variableSources, function(VariableSource $a, VariableSource $b)
+        {
+            $fileComparison = strcmp($a->getFileName(), $b->getFileName());
+            if ($fileComparison != 0) {
+                return $fileComparison;
+            } else {
+                return $a->getLineNumber() - $b->getLineNumber();
+            }
+        });
+        return $variableSources;
     }
 
     /**
