@@ -12,7 +12,9 @@ use Phan\PluginV3\PluginAwarePostAnalysisVisitor;
 use Phan\PluginV3\PostAnalyzeNodeCapability;
 use Phan\Debug;
 
+require_once __DIR__ . "/TaintAnalysis/Source.php";
 require_once __DIR__ . "/TaintAnalysis/VariableSource.php";
+require_once __DIR__ . "/TaintAnalysis/FunctionSource.php";
 require_once __DIR__ . "/TaintAnalysis/FunctionDefinition.php";
 require_once __DIR__ . "/TaintAnalysis/OutputToEvaluate.php";
 require_once __DIR__ . "/TaintAnalysis/TaintAnalysisTrait.php";
@@ -75,14 +77,14 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         /** @var OutputToEvaluate $output */
         foreach (self::$outputsToEvaluate as $output) {
             // on récupère les différentes sources d'informations dirrectement contenues dans l'expression
-            $sources = $this->extractVariableSourcesFromExpression($output->getExpression(), $output->getContext());
+            $sources = $this->extractSourcesFromExpression($output->getExpression(), $output->getContext());
             $sources = array_unique($sources);
             $evilSources = [];
             foreach ($sources as $source) {
                 // on parcourt chacune des sources récupérées pour voir si elles contiennent des sources potentielles de contamination
                 $evilSources = array_merge($evilSources, $this->evaluateEvilSources($source));
             }
-            $evilSources = $this->sortVariableSources($evilSources);
+            $evilSources = $this->sortUniqueSources($evilSources);
 
             if (count($evilSources) != 0) {
                 $this->emitPluginIssue(
@@ -100,28 +102,36 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     /**
      * Cherche les sources de contamination potentielles contenu dans une source
      *
-     * @param VariableSource $source La source à évaluer
-     * @return array<VariableSource> La liste des sources contaminées trouvées
+     * @param Source $source La source à évaluer
+     * @return array<Source> La liste des sources contaminées trouvées
      */
-    private function evaluateEvilSources(VariableSource $source): array
+    private function evaluateEvilSources(Source $source): array
     {
         $evilSources = [];
-        $firstSourceName = $source->getVarName();
+        $firstSourceName = $source->getDisplayName();
 
-        if (in_array($source->getVarName(), self::$taintednessRoots)) {
-            // Si le nom de la variable lié à la source est une des sources de contamination absolue
-            $evilSources[] = $source;
+        if ($source instanceof FunctionSource && isset(self::$functionDefinitions[$source->getFunctionName()])) {
+            /** @var FunctionDefinition $functionDefinition */
+            $functionDefinition = self::$functionDefinitions[$source->getFunctionName()];
+            $parentSources = $functionDefinition->getReturnSources();
         }
-        if ($source->getVarObject() == null) {
-            return $evilSources;
+        else {
+            if (in_array($source->getVarName(), self::$taintednessRoots)) {
+                // Si le nom de la variable lié à la source est une des sources de contamination absolue
+                $evilSources[] = $source;
+            }
+            if ($source->getVarObject() == null) {
+                return $evilSources;
+            }
+            $parentSources = $this->getSources($source->getVarObject());
         }
 
         // on fait une recherche récursive parmi les sources de la source
-        $parentSources = $this->getVariableSources($source->getVarObject());
         if (count($parentSources) != 0) {
+            /** @var Source $parentSource */
             foreach ($parentSources as $parentSource) {
                 // on fait attention à éviter les dépendances circulaires
-                if ($parentSource->getVarName() != $firstSourceName) {
+                if ($parentSource->getDisplayName() != $firstSourceName) {
                     $evilSources = array_merge($evilSources, $this->evaluateEvilSources($parentSource));
                 }
             }
@@ -151,14 +161,14 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 //        \Phan\Debug::printNode($node);
 
         $expression = $node->children['expr'];
-        $sources = $this->extractVariableSourcesFromExpression($expression, $this->context);
+        $sources = $this->extractSourcesFromExpression($expression, $this->context);
 
         // on récupère la variable qui se fait assigner
         $varNode = $node->children['var'];
         $varName = $this->extractNameFromVarNode($varNode);
         $varObject = $this->getVariableFromDeclarationScope($this->context->getScope(), $varName);
 
-        $this->addVariableSources($varObject, $sources);
+        $this->addSources($varObject, $sources);
     }
 
     /**
@@ -192,8 +202,8 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     public function visitReturn(Node $node)
     {
         $expression = $node->children['expr'];
-        $sources = $this->extractVariableSourcesFromExpression($expression, $this->context);
-        $sources = $this->sortVariableSources($sources);
+        $sources = $this->extractSourcesFromExpression($expression, $this->context);
+        $sources = $this->sortUniqueSources($sources);
 
         $func = $this->context->getFunctionLikeInScope($this->code_base);
         $functionDefinition = $this->getFunctionDefinitionFromFunc($func);
@@ -202,14 +212,14 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
 
     /**
      * @param Variable $varObject La variable dont on veut ajouter des sources
-     * @param array<VariableSource> $newVariableSources La liste des sources que l'on veut ajouter à la variable
+     * @param array<Source> $newSources La liste des sources que l'on veut ajouter
      */
-    private function addVariableSources(Variable $varObject, array $newVariableSources): void
+    private function addSources(Variable $varObject, array $newSources): void
     {
-        $variableSources = $this->getVariableSources($varObject);
-        $variableSources = array_merge($variableSources, $newVariableSources);
-        $variableSources = $this->sortVariableSources($variableSources);
-        $varObject->variableSources = $variableSources;
+        $sources = $this->getSources($varObject);
+        $sources = array_merge($sources, $newSources);
+        $sources = $this->sortUniqueSources($sources);
+        $varObject->sources = $sources;
     }
 }
 

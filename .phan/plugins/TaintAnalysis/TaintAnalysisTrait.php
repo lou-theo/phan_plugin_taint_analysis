@@ -10,12 +10,12 @@ Trait TaintAnalysisTrait
 {
     /**
      * @param Variable $varObject La variable dont on veut les sources
-     * @return array<VariableSource> La liste des sources de la variable
+     * @return array<Source> La liste des sources de la variable
      */
-    private function getVariableSources(Variable $varObject): array
+    private function getSources(Variable $varObject): array
     {
-        if (property_exists($varObject, 'variableSources')) {
-            return $varObject->variableSources;
+        if (property_exists($varObject, 'sources')) {
+            return $varObject->sources;
         } else {
             return [];
         }
@@ -52,13 +52,13 @@ Trait TaintAnalysisTrait
     }
 
     /**
-     * @param array<VariableSource> $variableSources La liste des sources à trier
-     * @return array<VariableSource> La liste des sources triées et unique
+     * @param array<Source> $sources La liste des sources à trier
+     * @return array<Source> La liste des sources triées et unique
      */
-    public function sortVariableSources(array $variableSources): array
+    public function sortUniqueSources(array $sources): array
     {
-        $variableSources = array_unique($variableSources);
-        usort($variableSources, function(VariableSource $a, VariableSource $b)
+        $sources = array_unique($sources);
+        usort($sources, function(Source $a, Source $b)
         {
             $fileComparison = strcmp($a->getFileName(), $b->getFileName());
             if ($fileComparison != 0) {
@@ -67,7 +67,7 @@ Trait TaintAnalysisTrait
                 return $a->getLineNumber() - $b->getLineNumber();
             }
         });
-        return $variableSources;
+        return $sources;
     }
 
     /**
@@ -121,9 +121,9 @@ Trait TaintAnalysisTrait
      *
      * @param string|Node $expression L'expression dont on veut extraire les sources
      * @param Context $context Le context lié à l'expression
-     * @return array<VariableSource> La liste des sources contenues dans l'expression
+     * @return array<Source> La liste des sources contenues dans l'expression
      */
-    private function extractVariableSourcesFromExpression($expression, Context $context): array
+    private function extractSourcesFromExpression($expression, Context $context): array
     {
         if (!is_object($expression)) {
             // si l'expression est quelque chose de constant (une chaine de caractère ou un int)
@@ -139,15 +139,20 @@ Trait TaintAnalysisTrait
             case ast\AST_DIM:
                 // l'expression est une array à laquelle on accède
                 $subExpression = $expression->children['expr'];
-                return $this->extractVariableSourcesFromExpression($subExpression, $context);
+                return $this->extractSourcesFromExpression($subExpression, $context);
             case ast\AST_BINARY_OP:
                 // on retourne le merge des 2 sous expressions
                 $leftSubExpression = $expression->children['left'];
                 $rightSubExpression = $expression->children['right'];
                 return array_merge(
-                    $this->extractVariableSourcesFromExpression($leftSubExpression, $context),
-                    $this->extractVariableSourcesFromExpression($rightSubExpression, $context)
+                    $this->extractSourcesFromExpression($leftSubExpression, $context),
+                    $this->extractSourcesFromExpression($rightSubExpression, $context)
                 );
+            case ast\AST_CALL:
+                $subExpression = $expression->children['expr'];
+                $functionName = $subExpression->children['name'];
+                $functionSource = new FunctionSource($context, $functionName);
+                return [$functionSource];
 
             default:
                 // cas actuellement non prévu
