@@ -2,7 +2,8 @@
 
 function test($a) {
     echo $a;
-    return $_GET['a'];
+    $zefze = $_GET['a'];
+    return $zefze;
 }
 
 $yo = 'a';

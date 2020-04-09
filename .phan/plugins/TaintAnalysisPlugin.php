@@ -78,21 +78,29 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         foreach (self::$outputsToEvaluate as $output) {
             // on récupère les différentes sources d'informations dirrectement contenues dans l'expression
             $sources = $this->extractSourcesFromExpression($output->getExpression(), $output->getContext());
-            $sources = array_unique($sources);
+            $sources = $this->sortUniqueSources($sources);
             $evilSources = [];
+            /** @var Source $source */
             foreach ($sources as $source) {
                 // on parcourt chacune des sources récupérées pour voir si elles contiennent des sources potentielles de contamination
-                $evilSources = array_merge($evilSources, $this->evaluateEvilSources($source));
+                $currentEvilSources = $this->evaluateEvilSources($source);
+                if (count($currentEvilSources) != 0) {
+                    $currentEvilSources = $this->sortUniqueSources($currentEvilSources);
+                    $evilSources[$source->getDisplayName()] = $currentEvilSources;
+                }
             }
-            $evilSources = $this->sortUniqueSources($evilSources);
 
             if (count($evilSources) != 0) {
+                $stringOutput = "";
+                foreach ($evilSources as $key => $evilSource) {
+                    $stringOutput .= $key . ' (via ' . implode(' ; ', $evilSource) . ') ; ';
+                }
                 $this->emitPluginIssue(
                     $output->getCodeBase(),
                     $output->getContext(),
                     'TaintAnalysisPlugin',
                     "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
-                    [implode(' ; ', $evilSources)],
+                    [$stringOutput],
                     Issue::SEVERITY_NORMAL
                 );
             }
@@ -127,13 +135,11 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         }
 
         // on fait une recherche récursive parmi les sources de la source
-        if (count($parentSources) != 0) {
-            /** @var Source $parentSource */
-            foreach ($parentSources as $parentSource) {
-                // on fait attention à éviter les dépendances circulaires
-                if ($parentSource->getDisplayName() != $firstSourceName) {
-                    $evilSources = array_merge($evilSources, $this->evaluateEvilSources($parentSource));
-                }
+        /** @var Source $parentSource */
+        foreach ($parentSources as $parentSource) {
+            // on fait attention à éviter les dépendances circulaires
+            if ($parentSource->getDisplayName() != $firstSourceName && count($this->evaluateEvilSources($parentSource)) != 0) {
+                $evilSources[] = $parentSource;
             }
         }
 
