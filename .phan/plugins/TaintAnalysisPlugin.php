@@ -53,6 +53,11 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     public static $functionDefinitions = [];
 
     /**
+     * @var array<FunctionSource> La liste des appels de fonction qui sont à analyser
+     */
+    public static $functionCallsToAnalyze = [];
+
+    /**
      * @return string - name of PluginAwarePostAnalysisVisitor subclass
      */
     public static function getPostAnalyzeNodeVisitorClassName(): string
@@ -66,6 +71,9 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     public function finalizeProcess(CodeBase $code_base): void
     {
         $this->handleGlobalOutputs();
+        foreach (self::$functionCallsToAnalyze as $functionCall) {
+            $this->handleFunctionOutputs($functionCall);
+        }
     }
 
     /**
@@ -101,6 +109,49 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
                     'TaintAnalysisPlugin',
                     "Une expression potentiellement infectée est affichée. Les sources potentielles d'infection sont : {STRING_LITERAL}",
                     [$stringOutput],
+                    Issue::SEVERITY_NORMAL
+                );
+            }
+        }
+    }
+
+    /**
+     * Gère la recherche des contaminations dans les outputs des fonctions
+     * @param Source $functionSource
+     */
+    private function handleFunctionOutputs(Source $functionSource)
+    {
+        if (!($functionSource instanceof FunctionSource) || !isset(self::$functionDefinitions[$functionSource->getFunctionName()])) {
+            return;
+        }
+        /** @var FunctionDefinition $functionDefinition */
+        $functionDefinition = self::$functionDefinitions[$functionSource->getFunctionName()];
+        $functionSource->setFunctionDefinition($functionDefinition);
+
+        foreach ($functionDefinition->getOutputs() as $output) {
+            $evilSources = [];
+            $sources = $this->extractSourcesFromExpression($output->getExpression(), $output->getContext());
+            $sources = $this->sortUniqueSources($sources);
+            /** @var Source $source */
+            foreach ($sources as $source) {
+                $currentEvilSources = $this->evaluateEvilSources($source, $functionSource);
+                if (count($currentEvilSources) != 0) {
+                    $currentEvilSources = $this->sortUniqueSources($currentEvilSources);
+                    $evilSources[$source->getDisplayName()] = $currentEvilSources;
+                }
+            }
+
+            if (count($evilSources) != 0) {
+                $stringOutput = "";
+                foreach ($evilSources as $key => $evilSource) {
+                    $stringOutput .= $key . ' (via ' . implode(' ; ', $evilSource) . ') ; ';
+                }
+                $this->emitPluginIssue(
+                    $output->getCodeBase(),
+                    $output->getContext(),
+                    'TaintAnalysisPlugin',
+                    "Une expression potentiellement infectée est affichée via l'appel de la fonction {STRING_LITERAL}. Les sources potentielles d'infection sont : {STRING_LITERAL}",
+                    [$functionSource, $stringOutput],
                     Issue::SEVERITY_NORMAL
                 );
             }
@@ -213,9 +264,29 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     public function visitEcho(Node $node)
     {
 //        \Phan\Debug::printNode($node);
-
         $expression = $node->children['expr'];
-        TaintAnalysisPlugin::$outputsToEvaluate[] = new OutputToEvaluate($expression, $this->code_base, $this->context);
+        $output = new OutputToEvaluate($expression, $this->code_base, $this->context);
+
+        if (!$this->context->isInFunctionLikeScope()) {
+            TaintAnalysisPlugin::$outputsToEvaluate[] = $output;
+        } else {
+            $func = $this->context->getFunctionLikeInScope($this->code_base);
+            $functionDefinition = $this->getFunctionDefinitionFromFunc($func);
+            $functionDefinition->addOutput($output);
+        }
+    }
+
+    /**
+     * @override
+     * @param Node $node
+     */
+    public function visitCall(Node $node)
+    {
+        $functionSources = $this->extractSourcesFromExpression($node, $this->context);
+        TaintAnalysisPlugin::$functionCallsToAnalyze = array_merge(
+            TaintAnalysisPlugin::$functionCallsToAnalyze,
+            $functionSources
+        );
     }
 
     /**

@@ -14,7 +14,7 @@ while (1 == $_POST['f']) {
         }
     }
     $a = $_GET['sd'];
-//    $yo = test($_GET['d']);
+    $yo = test($_GET['d']);
     $yo = test(3);
     echo $yo;
 }
