@@ -1,6 +1,7 @@
 <?php
 
 use Phan\Language\Element\Func;
+use Phan\Language\Element\Parameter;
 
 class FunctionDefinition
 {
@@ -22,6 +23,24 @@ class FunctionDefinition
     public function __construct(Func $func)
     {
         $this->func = $func;
+    }
+
+    /**
+     * @param string $varName
+     * @return int|null
+     */
+    public function getParameterIndexOrNull(string $varName): ?int
+    {
+        $parameters = $this->getFunc()->getParameterList();
+        /** @var array<Parameter> $parameters */
+        for ($indexParameter = 0 ; $indexParameter < count($parameters) ; $indexParameter++) {
+            /** @var Parameter $parameter */
+            $parameter = $parameters[$indexParameter];
+            if ($varName == $parameter->getName()) {
+                return $indexParameter;
+            }
+        }
+        return null;
     }
 
     //region Getter

@@ -2,8 +2,7 @@
 
 function test($a) {
     echo $a;
-    $zefze = $_GET['a'];
-    return $zefze;
+    return $a;
 }
 
 $yo = 'a';
@@ -15,6 +14,7 @@ while (1 == $_POST['f']) {
         }
     }
     $a = $_GET['sd'];
-    $yo = test(5);
+//    $yo = test($_GET['d']);
+    $yo = test(3);
     echo $yo;
 }

@@ -119,7 +119,7 @@ Trait TaintAnalysisTrait
     /**
      * Evalue une expression et en extrait les sources de transmission des données
      *
-     * @param string|Node $expression L'expression dont on veut extraire les sources
+     * @param mixed|Node $expression L'expression dont on veut extraire les sources
      * @param Context $context Le context lié à l'expression
      * @return array<Source> La liste des sources contenues dans l'expression
      */
@@ -151,7 +151,8 @@ Trait TaintAnalysisTrait
             case ast\AST_CALL:
                 $subExpression = $expression->children['expr'];
                 $functionName = $subExpression->children['name'];
-                $functionSource = new FunctionSource($context, $functionName);
+                $nodeArgumentsList = $expression->children['args'];
+                $functionSource = new FunctionSource($context, $functionName, $nodeArgumentsList);
                 return [$functionSource];
 
             default:

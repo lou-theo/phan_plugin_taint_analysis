@@ -111,9 +111,10 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
      * Cherche les sources de contamination potentielles contenu dans une source
      *
      * @param Source $source La source à évaluer
+     * @param FunctionSource|null $currentFunctionSource L'appel de fonction actuellement étudié, s'il y en a un
      * @return array<Source> La liste des sources contaminées trouvées
      */
-    private function evaluateEvilSources(Source $source): array
+    private function evaluateEvilSources(Source $source, FunctionSource $currentFunctionSource = null): array
     {
         $evilSources = [];
         $firstSourceName = $source->getDisplayName();
@@ -122,6 +123,9 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
             /** @var FunctionDefinition $functionDefinition */
             $functionDefinition = self::$functionDefinitions[$source->getFunctionName()];
             $parentSources = $functionDefinition->getReturnSources();
+
+            $currentFunctionSource = $source;
+            $source->setFunctionDefinition($functionDefinition);
         }
         else {
             if (in_array($source->getVarName(), self::$taintednessRoots)) {
@@ -132,13 +136,26 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
                 return $evilSources;
             }
             $parentSources = $this->getSources($source->getVarObject());
+
+            // si on est dans le cas où on étudie un appel de fonction,
+            // on regarde si la variable source actuellement étudié n'est pas dans les paramètres de la fonction
+            // si c'est le cas, on ajoute les sources des paramètres d'appel de la fonction
+            if (
+                $currentFunctionSource != null
+                && ($indexParameter = $currentFunctionSource->getFunctionDefinition()->getParameterIndexOrNull($source->getVarName())) !== null
+            ) {
+                $parentSources = array_merge(
+                    $parentSources,
+                    $this->extractSourcesFromExpression($currentFunctionSource->getExpressionArguments()[$indexParameter], $currentFunctionSource->getContext())
+                );
+            }
         }
 
         // on fait une recherche récursive parmi les sources de la source
         /** @var Source $parentSource */
         foreach ($parentSources as $parentSource) {
             // on fait attention à éviter les dépendances circulaires
-            if ($parentSource->getDisplayName() != $firstSourceName && count($this->evaluateEvilSources($parentSource)) != 0) {
+            if ($parentSource->getDisplayName() != $firstSourceName && count($this->evaluateEvilSources($parentSource, $currentFunctionSource)) != 0) {
                 $evilSources[] = $parentSource;
             }
         }
