@@ -3,8 +3,12 @@
 use Phan\Language\Element\Func;
 use Phan\Language\Element\Parameter;
 
+require_once __DIR__ . "/TaintAnalysisTrait.php";
+
 class FunctionDefinition
 {
+    use TaintAnalysisTrait;
+
     /**
      * @var Func
      */
@@ -19,6 +23,8 @@ class FunctionDefinition
      * @var array<VariableSource>
      */
     private $returnSources = [];
+
+    private $functionCallToVisitList = [];
 
     public function __construct(Func $func)
     {
@@ -66,6 +72,7 @@ class FunctionDefinition
     public function addOutput(OutputToEvaluate $outputToEvaluate)
     {
         $this->outputs[] = $outputToEvaluate;
+        $this->outputs = $this->sortUniqueSources($this->outputs);
     }
 
     /**
@@ -82,6 +89,24 @@ class FunctionDefinition
     public function addReturnSources(array $variableSources)
     {
         $this->returnSources = array_merge($this->returnSources, $variableSources);
+        $this->returnSources = $this->sortUniqueSources($this->returnSources);
+    }
+
+    /**
+     * @return array
+     */
+    public function getFunctionCallToVisitList(): array
+    {
+        return $this->functionCallToVisitList;
+    }
+
+    /**
+     * @param array<FunctionSource> $functionCallToVisitList
+     */
+    public function addFunctionCallToVisit(array $functionCallToVisitList)
+    {
+        $this->functionCallToVisitList = array_merge($this->functionCallToVisitList, $functionCallToVisitList);
+        $this->functionCallToVisitList  = $this->sortUniqueSources($this->functionCallToVisitList );
     }
     //endregion
 }

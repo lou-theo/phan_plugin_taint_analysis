@@ -44,6 +44,11 @@ class OutputToEvaluate
         $this->lineNumber = $context->getLineNumberStart();
     }
 
+    public function __toString()
+    {
+        return 'output ' . $this->getFileName() . ':' . $this->getLineNumber();
+    }
+
     //region Getter
     /**
      * @return string

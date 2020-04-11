@@ -58,6 +58,16 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     public static $functionCallsToAnalyze = [];
 
     /**
+     * @var array<FunctionSource> Les appels de fonctions qui ont déjà été étudiés pour la recherche des output dans les fonctions
+     */
+    private $functionCallsAlreadyVisited = [];
+
+    /**
+     * @var array<Source> La liste des sources déjà visitées dans l'analyse de chaque output
+     */
+    private $sourcesAlreadyVisited = [];
+
+    /**
      * @return string - name of PluginAwarePostAnalysisVisitor subclass
      */
     public static function getPostAnalyzeNodeVisitorClassName(): string
@@ -71,6 +81,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     public function finalizeProcess(CodeBase $code_base): void
     {
         $this->handleGlobalOutputs();
+        self::$functionCallsToAnalyze = array_unique(self::$functionCallsToAnalyze);
         foreach (self::$functionCallsToAnalyze as $functionCall) {
             $this->handleFunctionOutputs($functionCall);
         }
@@ -91,6 +102,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
             /** @var Source $source */
             foreach ($sources as $source) {
                 // on parcourt chacune des sources récupérées pour voir si elles contiennent des sources potentielles de contamination
+                $this->sourcesAlreadyVisited = [];
                 $currentEvilSources = $this->evaluateEvilSources($source);
                 if (count($currentEvilSources) != 0) {
                     $currentEvilSources = $this->sortUniqueSources($currentEvilSources);
@@ -134,7 +146,8 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
             $sources = $this->sortUniqueSources($sources);
             /** @var Source $source */
             foreach ($sources as $source) {
-                $currentEvilSources = $this->evaluateEvilSources($source, $functionSource);
+                $this->sourcesAlreadyVisited = [];
+                $currentEvilSources = $this->evaluateEvilSources($source, [$functionSource]);
                 if (count($currentEvilSources) != 0) {
                     $currentEvilSources = $this->sortUniqueSources($currentEvilSources);
                     $evilSources[$source->getDisplayName()] = $currentEvilSources;
@@ -156,26 +169,33 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
                 );
             }
         }
+
+        foreach ($functionDefinition->getFunctionCallToVisitList() as $functionCallToVisit) {
+            if (!in_array($functionCallToVisit, $this->functionCallsAlreadyVisited)) {
+                $this->functionCallsAlreadyVisited[] = $functionCallToVisit;
+                $this->handleFunctionOutputs($functionCallToVisit);
+            }
+        }
     }
 
     /**
      * Cherche les sources de contamination potentielles contenu dans une source
      *
      * @param Source $source La source à évaluer
-     * @param FunctionSource|null $currentFunctionSource L'appel de fonction actuellement étudié, s'il y en a un
+     * @param array<FunctionSource> $currentFunctionSources Le stack des appels de fonction étudiés
      * @return array<Source> La liste des sources contaminées trouvées
      */
-    private function evaluateEvilSources(Source $source, FunctionSource $currentFunctionSource = null): array
+    private function evaluateEvilSources(Source $source, array $currentFunctionSources = []): array
     {
         $evilSources = [];
-        $firstSourceName = $source->getDisplayName();
+        $this->sourcesAlreadyVisited[] = $source->getDisplayName();
 
         if ($source instanceof FunctionSource && isset(self::$functionDefinitions[$source->getFunctionName()])) {
             /** @var FunctionDefinition $functionDefinition */
             $functionDefinition = self::$functionDefinitions[$source->getFunctionName()];
             $parentSources = $functionDefinition->getReturnSources();
 
-            $currentFunctionSource = $source;
+            $currentFunctionSources[] = $source;
             $source->setFunctionDefinition($functionDefinition);
         }
         else {
@@ -191,10 +211,12 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
             // si on est dans le cas où on étudie un appel de fonction,
             // on regarde si la variable source actuellement étudié n'est pas dans les paramètres de la fonction
             // si c'est le cas, on ajoute les sources des paramètres d'appel de la fonction
+            $currentFunctionSource = count($currentFunctionSources) != 0 ? $currentFunctionSources[count($currentFunctionSources) - 1] : null;
             if (
                 $currentFunctionSource != null
                 && ($indexParameter = $currentFunctionSource->getFunctionDefinition()->getParameterIndexOrNull($source->getVarName())) !== null
             ) {
+                array_pop($currentFunctionSources);
                 $parentSources = array_merge(
                     $parentSources,
                     $this->extractSourcesFromExpression($currentFunctionSource->getExpressionArguments()[$indexParameter], $currentFunctionSource->getContext())
@@ -206,7 +228,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         /** @var Source $parentSource */
         foreach ($parentSources as $parentSource) {
             // on fait attention à éviter les dépendances circulaires
-            if ($parentSource->getDisplayName() != $firstSourceName && count($this->evaluateEvilSources($parentSource, $currentFunctionSource)) != 0) {
+            if (!in_array($parentSource->getDisplayName(), $this->sourcesAlreadyVisited) && count($this->evaluateEvilSources($parentSource, $currentFunctionSources)) != 0) {
                 $evilSources[] = $parentSource;
             }
         }
@@ -283,10 +305,17 @@ class TaintAnalysisVisitor extends PluginAwarePostAnalysisVisitor
     public function visitCall(Node $node)
     {
         $functionSources = $this->extractSourcesFromExpression($node, $this->context);
-        TaintAnalysisPlugin::$functionCallsToAnalyze = array_merge(
-            TaintAnalysisPlugin::$functionCallsToAnalyze,
-            $functionSources
-        );
+
+        if (!$this->context->isInFunctionLikeScope()) {
+            TaintAnalysisPlugin::$functionCallsToAnalyze = array_merge(
+                TaintAnalysisPlugin::$functionCallsToAnalyze,
+                $functionSources
+            );
+        } else {
+            $func = $this->context->getFunctionLikeInScope($this->code_base);
+            $functionDefinition = $this->getFunctionDefinitionFromFunc($func);
+            $functionDefinition->addFunctionCallToVisit($functionSources);
+        }
     }
 
     /**
