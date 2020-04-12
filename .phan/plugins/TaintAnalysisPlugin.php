@@ -188,7 +188,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
     private function evaluateEvilSources(Source $source, array $currentFunctionSources = []): array
     {
         $evilSources = [];
-        $this->sourcesAlreadyVisited[] = $source->getDisplayName();
+        $this->sourcesAlreadyVisited[] = $source;
 
         if ($source instanceof FunctionSource && isset(self::$functionDefinitions[$source->getFunctionName()])) {
             /** @var FunctionDefinition $functionDefinition */
@@ -228,7 +228,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         /** @var Source $parentSource */
         foreach ($parentSources as $parentSource) {
             // on fait attention à éviter les dépendances circulaires
-            if (!in_array($parentSource->getDisplayName(), $this->sourcesAlreadyVisited) && count($this->evaluateEvilSources($parentSource, $currentFunctionSources)) != 0) {
+            if (!in_array($parentSource, $this->sourcesAlreadyVisited) && count($this->evaluateEvilSources($parentSource, $currentFunctionSources)) != 0) {
                 $evilSources[] = $parentSource;
             }
         }

@@ -32,8 +32,12 @@ function f(int $n) {
     return $a;
 }
 
+function zef($p) {
+    return f($p);
+}
+
 function g(int $p) {
-    $q = f($p);
+    $q = zef($p);
     echo($q);
 }
 
