@@ -31,9 +31,9 @@ class FunctionSource extends Source
      * FunctionSource constructor.
      * @param Context $context
      * @param string $functionName
-     * @param Node $nodeArgumentsList
+     * @param mixed $nodeArgumentsList
      */
-    public function __construct(Context $context, string $functionName, Node $nodeArgumentsList)
+    public function __construct(Context $context, string $functionName, $nodeArgumentsList)
     {
         parent::__construct($context);
         $this->functionName = $functionName;

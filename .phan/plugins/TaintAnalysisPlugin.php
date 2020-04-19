@@ -8,6 +8,7 @@ use Phan\Issue;
 use Phan\Language\Element\PassByReferenceVariable;
 use Phan\Language\Element\Variable;
 use Phan\PluginV3;
+use Phan\PluginV3\FinalizeProcessCapability;
 use Phan\PluginV3\PluginAwarePostAnalysisVisitor;
 use Phan\PluginV3\PostAnalyzeNodeCapability;
 use Phan\Debug;
@@ -33,7 +34,7 @@ require_once __DIR__ . "/TaintAnalysis/TaintAnalysisTrait.php";
  * Note: When adding new plugins,
  * add them to the corresponding section of README.md
  */
-class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability, PluginV3\FinalizeProcessCapability
+class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability, FinalizeProcessCapability
 {
     use TaintAnalysisTrait;
 
@@ -171,7 +172,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         }
 
         foreach ($functionDefinition->getFunctionCallToVisitList() as $functionCallToVisit) {
-            if (!in_array($functionCallToVisit, $this->functionCallsAlreadyVisited)) {
+            if (!in_array($functionCallToVisit, $this->functionCallsAlreadyVisited, true)) {
                 $this->functionCallsAlreadyVisited[] = $functionCallToVisit;
                 $this->handleFunctionOutputs($functionCallToVisit);
             }
@@ -199,7 +200,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
             $source->setFunctionDefinition($functionDefinition);
         }
         else {
-            if (in_array($source->getVarName(), self::$taintednessRoots)) {
+            if (in_array($source->getVarName(), self::$taintednessRoots, true)) {
                 // Si le nom de la variable lié à la source est une des sources de contamination absolue
                 $evilSources[] = $source;
             }
@@ -228,7 +229,7 @@ class TaintAnalysisPlugin extends PluginV3 implements PostAnalyzeNodeCapability,
         /** @var Source $parentSource */
         foreach ($parentSources as $parentSource) {
             // on fait attention à éviter les dépendances circulaires
-            if (!in_array($parentSource, $this->sourcesAlreadyVisited) && count($this->evaluateEvilSources($parentSource, $currentFunctionSources)) != 0) {
+            if (!in_array($parentSource, $this->sourcesAlreadyVisited, true) && count($this->evaluateEvilSources($parentSource, $currentFunctionSources)) != 0) {
                 $evilSources[] = $parentSource;
             }
         }
