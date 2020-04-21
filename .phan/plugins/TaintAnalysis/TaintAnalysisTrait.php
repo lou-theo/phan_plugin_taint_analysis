@@ -58,7 +58,7 @@ Trait TaintAnalysisTrait
     public function sortUniqueSources(array $sources): array
     {
         $sources = array_unique($sources);
-        usort($sources, function(Source $a, Source $b)
+        usort($sources, function($a, $b)
         {
             $fileComparison = strcmp($a->getFileName(), $b->getFileName());
             if ($fileComparison != 0) {

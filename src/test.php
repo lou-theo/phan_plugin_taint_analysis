@@ -1,46 +1,51 @@
 <?php
 
-//function test($a) {
+//
+//$b = $_GET['sample'];
+//$b = 5;
+//$a = $b - 3;
+
+
+//$a = $_GET['toxic'];
+//$b = $_GET['toxic'];
+//function test($a, $b) {
+//    global $b;
 //    echo $a;
-//    return test($a);
+//    echo $b;
+//}
+//test(5, 8);
+
+
+//function recursive ($a) {
+//    if ($a == 1) {
+//        return $_GET['toxic'];
+//    }
+//    return $a;
+//}
+//echo recursive(8);
+
+
+//function top(int $n) {
+//    $a = 0;
+//    $b = 1;
+//    while ($n > 1) {
+//        $c = $a + $n;
+//        $a = $b;
+//        $b = $c;
+//        $n = $n - 1;
+//    }
 //    return $a;
 //}
 //
-//$yo = 'a';
-//while (1 == $_POST['f']) {
-//    if (1 == $_GET['d']) {
-//        if ("sdv" == $_GET['d']) {
-//            $ya = $_GET['d'];
-//            $yo = $ya;
-//        }
-//    }
-//    $a = $_GET['sd'];
-//    $yo = test($_GET['d']);
-//    $yo = test(3);
-//    echo $yo;
+//function mid($p) {
+//    return top($p);
 //}
-
-function f(int $n) {
-    $a = 0;
-    $b = 1;
-    while ($n > 1) {
-        $c = $a + $n;
-        $a = $b;
-        $b = $c;
-        $n = $n - 1;
-    }
-    return $a;
-}
-
-function zef($p) {
-    return f($p);
-}
-
-function g(int $p) {
-    $q = zef($p);
-    echo($q);
-}
-
-$x = $_GET['sd'];
-'@phan-var int $x';
-g($x);
+//
+//function bot(int $p) {
+//    $q = mid($p);
+//    echo($q);
+//}
+//
+//$x = $_GET['sd'];
+//'@phan-var int $x';
+//bot($x);
